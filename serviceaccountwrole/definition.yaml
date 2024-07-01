@@ -1,0 +1,56 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xserviceaccountwroles.iam.doc.network
+spec:
+  group: iam.doc.network
+  names:
+    kind: XServiceAccountwRole
+    plural: xserviceaccountwroles
+  claimNames:
+    kind: ServiceAccountwRole
+    plural: serviceaccountwroles
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                clusterName:
+                  type: string
+                  description: Name of the cluster on which this is being installed.
+                env:
+                  type: string
+                  description: Stack this service account is associated with (i.e dev, qa, prod, ect).  Used for naming
+                project:
+                  type: string
+                  description: Project this service account is associated with.  Used for naming
+                description:
+                  type: string
+                  description: Description of the role and policy
+                policy:
+                  type: string
+                  description: JSON policy used when creating the IAM policy that is attached to the role.
+                sa_name:
+                  type: string
+                  description: Optional name of the service account.  If not provided, the name will be generated.
+                       
+              required:
+                - clusterName
+                - env
+                - project
+                - description
+                - policy
+            status:
+              type: object
+              properties:
+                roleArn:
+                  type: string
+                sa:
+                  type: string

@@ -1,0 +1,145 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xserviceaccountwroles.iam.doc.network
+  labels:
+    crossplane.io/xrd: xserviceaccountwroles.iam.doc.network
+spec:
+  compositeTypeRef:
+    apiVersion: iam.doc.network/v1alpha1
+    kind: XServiceAccountwRole
+  resources:  
+  - name: role
+    base:
+      apiVersion: tf.upbound.io/v1beta1
+      kind: Workspace
+      metadata:
+        name: role
+      spec:
+        providerConfigRef:
+          name: service-account-roles
+        forProvider:
+          module: |
+            locals {
+              name = "${var.stack}-${var.project}"
+              serviceAccount = var.sa_name == "--" ? "${local.name}-sa" : var.sa_name
+              tags = {
+                Stack           = var.stack
+                Project         = var.project
+                ManagedBy       = "crossplane"
+              }
+            }
+
+            resource "aws_iam_policy" "this" {
+              name        = "${local.serviceAccount}-policy"
+              path        = "/"
+              description = var.description
+              policy      = var.policy
+              tags        = local.tags
+            }
+
+            module "iam_eks_role" {
+              source    = "terraform-aws-modules/iam/aws//modules/iam-eks-role"
+              role_name = "${local.serviceAccount}-role"
+              role_description = var.description
+              cluster_service_accounts = {
+                "${var.cluster_name}" = ["${var.namespace}:${local.serviceAccount}"]
+              }
+              role_policy_arns = {
+                this = aws_iam_policy.this.arn
+              }
+              tags = local.tags
+            }
+
+            output "policy_arn" {
+              value = aws_iam_policy.this.arn
+            }
+            output "role_arn" {
+              value = module.iam_eks_role.iam_role_arn
+            }
+
+            output "sa" {
+              value = local.serviceAccount
+            }
+
+            variable "stack" {}
+            variable "project" {}
+            variable "policy" {}
+            variable "description" {}
+            variable "cluster_name" {}
+            variable "sa_name" {}
+            variable "namespace" {}
+
+          source: Inline
+          vars:
+            - key: cluster_name
+            - key: stack
+            - key: project
+            - key: description
+            - key: policy
+            - key: sa_name
+              value: --
+            - key: namespace
+            
+    patches:
+      - fromFieldPath: spec.clusterName
+        toFieldPath: spec.forProvider.vars[0].value
+
+      - fromFieldPath: spec.env
+        toFieldPath: spec.forProvider.vars[1].value
+
+      - fromFieldPath: spec.project
+        toFieldPath: spec.forProvider.vars[2].value
+
+      - fromFieldPath: spec.description
+        toFieldPath: spec.forProvider.vars[3].value
+
+      - fromFieldPath: spec.policy
+        toFieldPath: spec.forProvider.vars[4].value
+      
+      - fromFieldPath: spec.sa_name
+        toFieldPath: spec.forProvider.vars[5].value
+      
+      - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+        toFieldPath: spec.forProvider.vars[6].value
+      
+      - type: ToCompositeFieldPath
+        fromFieldPath: status.atProvider.outputs.role_arn
+        toFieldPath: status.roleArn
+
+      - type: ToCompositeFieldPath
+        fromFieldPath: status.atProvider.outputs.sa
+        toFieldPath: status.sa
+
+  - name: serviceaccount
+    base: 
+      apiVersion: kubernetes.crossplane.io/v1alpha1
+      kind: Object
+      metadata:
+        name: to-be-patched
+        namespace: to-be-patched
+      spec:
+        forProvider:
+          manifest:
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: to-be-patched
+              namespace: to-be-patched
+              annotations:
+                eks.amazonaws.com/role-arn: to-be-patched
+
+    patches:
+      - fromFieldPath: metadata.labels[crossplane.io/composite]
+        toFieldPath: metadata.name
+      - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+        toFieldPath: metadata.namespace
+      - fromFieldPath: status.sa
+        toFieldPath: spec.forProvider.manifest.metadata.name
+      - fromFieldPath: metadata.labels[crossplane.io/claim-namespace]
+        toFieldPath: spec.forProvider.manifest.metadata.namespace
+      - type: FromCompositeFieldPath
+        fromFieldPath: status.roleArn
+        toFieldPath: spec.forProvider.manifest.metadata.annotations["eks.amazonaws.com/role-arn"]
+        policy:
+          fromFieldPath: Required
